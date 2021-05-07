@@ -11,6 +11,8 @@ const RIGHT = 1;
 const LEFT = -1;
 const NO = 0;
 
+const CHANCE_OF_ENEMY_FIRE = 5; // 1 to 10
+
 function startGame() {
     game.gamePieces.player = new component("player", 30, 30, "blue", 385, 560, 0, 0);
     for (let row = 0; row < 4; row++) {
@@ -37,39 +39,41 @@ var game = {
         this.canvas.height = 600;
         this.context = this.canvas.getContext("2d");
         document.body.insertBefore(this.canvas, document.body.childNodes[0]);
-        this.canvas.addEventListener('click', this.onClick, false);
-        document.addEventListener('keydown', this.onKeyDown, false);
-        document.addEventListener('keyup', this.onKeyUp, false);
+        this.canvas.addEventListener('click', this.input.onClick, false);
+        document.addEventListener('keydown', this.input.onKeyDown, false);
+        document.addEventListener('keyup', this.input.onKeyUp, false);
         this.end = false;
     },
-    onClick: function (event) {
-        game.gamePieces.player.fire();
-    },
-    onKeyDown: function (event) {
-        switch (event.keyCode) {
-            case 65:
-                game.gamePieces.player.dx = -2;
-                break;
-            case 68:
-                game.gamePieces.player.dx = 2;
-                break;
-        }
-    },
-    onKeyUp: function (event) {
-        switch (event.keyCode) {
-            case 65:
-                game.gamePieces.player.dx = 0;
-                break;
-            case 68:
-                game.gamePieces.player.dx = 0;
-                break;
-        }
+    input: {
+        onClick: function (event) {
+            game.gamePieces.player.fire();
+        },
+        onKeyDown: function (event) {
+            switch (event.keyCode) {
+                case 65:
+                    game.gamePieces.player.dx = -2;
+                    break;
+                case 68:
+                    game.gamePieces.player.dx = 2;
+                    break;
+            }
+        },
+        onKeyUp: function (event) {
+            switch (event.keyCode) {
+                case 65:
+                    game.gamePieces.player.dx = 0;
+                    break;
+                case 68:
+                    game.gamePieces.player.dx = 0;
+                    break;
+            }
+        },
     },
     collision: function () {
         /* Player vs Enemies */
         this.gamePieces.enemies.forEach(enemy => {
             if (!enemy.killed) {
-                if (isObjectColliding(this.gamePieces.player, enemy)) {
+                if (collisionUtils.isObjectColliding(this.gamePieces.player, enemy)) {
                     this.gamePieces.player.killed = true;
                     this.end = true;
                 }
@@ -83,7 +87,7 @@ var game = {
         });
         /* Missiles vs Player */
         this.gamePieces.missiles.forEach(missile => {
-            if (isObjectColliding(this.gamePieces.player, missile) && !missile.killed) {
+            if (collisionUtils.isObjectColliding(this.gamePieces.player, missile) && !missile.killed) {
                 this.gamePieces.player.killed = true;
                 missile.killed = true;
                 this.end = true;
@@ -93,12 +97,16 @@ var game = {
         this.gamePieces.enemies.forEach(enemy => {
             if (!enemy.killed) {
                 this.gamePieces.missiles.forEach(missile => {
-                    if (isObjectColliding(enemy, missile) && !missile.killed) {
+                    if (collisionUtils.isObjectColliding(enemy, missile) && !missile.killed) {
                         enemy.killed = true;
                         missile.killed = true;
                     }
                 });
             }
+        });
+        /* Enemy vs Bottom edge */
+        this.gamePieces.enemies.forEach(enemy => {
+            if (enemy.y >= game.canvas.height) enemy.killed = true;
         });
     },
     cleanUpPieces: function () {
@@ -111,7 +119,8 @@ var game = {
     },
     update: function () {
         this.countFrames();
-        enemyMovement();
+        enemyAI.enemyMovement();
+        enemyAI.enemyFire();
         this.gamePieces.enemies.forEach(piece => {
             piece.update();
         });
@@ -137,41 +146,84 @@ var game = {
     },
 }
 
-function isObjectAtGameSideEdges(obj, canvas) {
-    if (obj.x + obj.width >= canvas.width) {
-        return RIGHT;
-    } else if (obj.x <= 0) {
-        return LEFT;
+var collisionUtils = {
+    isObjectAtGameSideEdges: function (obj, canvas) {
+        if (obj.x + obj.width >= canvas.width) {
+            return RIGHT;
+        } else if (obj.x <= 0) {
+            return LEFT;
+        }
+        return NO;
+    },
+    isObjectColliding: function (objA, objB) {
+        let x_overlap = Math.max(0, Math.min(objA.x + objA.width, objB.x + objB.width) - Math.max(objA.x, objB.x));
+        let y_overlap = Math.max(0, Math.min(objA.y + objA.height, objB.y + objB.height) - Math.max(objA.y, objB.y));
+        let overlapArea = x_overlap * y_overlap;
+        return overlapArea > 0;
     }
-    return NO;
 }
 
-function enemyMovement() {
-    let atEdge = NO;
+var enemyAI = {
+    lowerEnemies: function () {
+        let cols = [];
+        let ret = [];
+        game.gamePieces.enemies.forEach(enemy => {
+            let col = cols.filter(col => {
+                if (col) {
+                    if (col.x === enemy.x) {
+                        return true;
+                    }
+                }
+                return false;
+            })
+            if (col.length > 0) {
+                col[0].enemies.push(enemy);
+            } else {
+                cols.push({
+                    x: enemy.x,
+                    enemies: [enemy]
+                })
+            }
+        });
+        cols.forEach(col => {
+            let y = 0;
+            let lowestEnemy = null;
+            col.enemies.forEach(enemy => {
+                if (enemy.y > y) {
+                    lowestEnemy = enemy;
+                    y = enemy.y;
+                }
+            });
+            ret.push(lowestEnemy);
+        })
+        return ret;
+    },
+    enemyFire: function () {
+        let lowest = enemyAI.lowerEnemies();
+        lowest.forEach(enemy => {
+            // Check to fire
+        })
+    },
+    enemyMovement: function () {
+        let atEdge = NO;
 
-    game.gamePieces.enemies.forEach(enemy => {
-        let isAtEdge = isObjectAtGameSideEdges(enemy, game.canvas)
-        if (isAtEdge != NO) atEdge = isAtEdge;
-    });
+        game.gamePieces.enemies.forEach(enemy => {
+            let isAtEdge = collisionUtils.isObjectAtGameSideEdges(enemy, game.canvas)
+            if (isAtEdge != NO) atEdge = isAtEdge;
+        });
 
-    game.gamePieces.enemies.forEach(enemy => {
-        if (atEdge != NO) {
-            if (atEdge === RIGHT) enemy.dx = -ENEMY_X_SPEED;
-            if (atEdge === LEFT) enemy.dx = ENEMY_X_SPEED;
-        }
-        if (game.majorFrames === 0) {
-            enemy.dy = ENEMY_Y_SPEED;
-        } else {
-            enemy.dy = 0;
-        }
-    })
-}
-
-function isObjectColliding(objA, objB) {
-    let x_overlap = Math.max(0, Math.min(objA.x + objA.width, objB.x + objB.width) - Math.max(objA.x, objB.x));
-    let y_overlap = Math.max(0, Math.min(objA.y + objA.height, objB.y + objB.height) - Math.max(objA.y, objB.y));
-    let overlapArea = x_overlap * y_overlap;
-    return overlapArea > 0;
+        game.gamePieces.enemies.forEach(enemy => {
+            if (atEdge != NO) {
+                if (atEdge === RIGHT) enemy.dx = -ENEMY_X_SPEED;
+                if (atEdge === LEFT) enemy.dx = ENEMY_X_SPEED;
+            }
+            if (game.majorFrames === 0) {
+                enemy.dy = 0; // ENEMY_Y_SPEED;
+            } else {
+                enemy.dy = 0;
+            }
+        })
+    }
 }
 
 function playerWonTheGame() {
@@ -187,7 +239,7 @@ function update() {
     if (!game.end) {
         window.requestAnimationFrame(update);
     } else {
-        alert("GAME OVER")
+        alert("GAME OVER");
     }
 }
 
