@@ -3,23 +3,34 @@
 /*   2021, Cabal_se  */
 /*********************/
 
-const MAJOR_FRAMES = 70;
+/* Speeds */
 const ENEMY_Y_SPEED = 10;
 const ENEMY_X_SPEED = 1;
+const MISSILE_SPEED = 5;
 
+/* Controlls */
 const RIGHT = 1;
 const LEFT = -1;
 const NO = 0;
 
+/* Player Constants */
+const PLAYER_MAX_MISSILES = 3;
+
+/* Enemy Constants */
 const CHANCE_OF_ENEMY_FIRE = 5; // 1 to 10
+const MAX_FIRING_ENEMIES = 3;
+const FRAMES_BETWEEN_FIRE = 15;
+const FRAMES_BEFORE_MOVING_DOWN = 200;
 
 function startGame() {
-    game.gamePieces.player = new component("player", 30, 30, "blue", 385, 560, 0, 0);
+    game.gamePieces.player = new component("player", 0, 30, 30, "blue", 385, 560, 0, 0, undefined);
+    let id = 1;
     for (let row = 0; row < 4; row++) {
         for (let col = 0; col < 5; col++) {
             let x = (160 * col) + 30;
             let y = (50 * row) + 30;
-            game.gamePieces.enemies.push(new component("enemy", 100, 30, "red", x, y, -ENEMY_X_SPEED, 0));
+            game.gamePieces.enemies.push(new component("enemy", id, 100, 30, "red", x, y, -ENEMY_X_SPEED, 0, undefined));
+            id += 1;
         }
     }
     game.init();
@@ -27,7 +38,8 @@ function startGame() {
 }
 
 var game = {
-    majorFrames: 0,
+    score: 0,
+    frameCount: 0,
     canvas: document.createElement("canvas"),
     gamePieces: {
         player: null,
@@ -74,7 +86,7 @@ var game = {
         this.gamePieces.enemies.forEach(enemy => {
             if (!enemy.killed) {
                 if (collisionUtils.isObjectColliding(this.gamePieces.player, enemy)) {
-                    this.gamePieces.player.killed = true;
+                    this.gamePieces.player.kill();
                     this.end = true;
                 }
             }
@@ -82,14 +94,14 @@ var game = {
         /* Missiles vs Edge */
         this.gamePieces.missiles.forEach(missile => {
             if (missile.y <= 0 || missile.y >= this.canvas.height) {
-                missile.killed = true;
+                missile.kill();
             }
         });
         /* Missiles vs Player */
         this.gamePieces.missiles.forEach(missile => {
             if (collisionUtils.isObjectColliding(this.gamePieces.player, missile) && !missile.killed) {
-                this.gamePieces.player.killed = true;
-                missile.killed = true;
+                this.gamePieces.player.kill();
+                missile.kill();
                 this.end = true;
             }
         });
@@ -98,15 +110,15 @@ var game = {
             if (!enemy.killed) {
                 this.gamePieces.missiles.forEach(missile => {
                     if (collisionUtils.isObjectColliding(enemy, missile) && !missile.killed) {
-                        enemy.killed = true;
-                        missile.killed = true;
+                        enemy.kill();
+                        missile.kill();
                     }
                 });
             }
         });
         /* Enemy vs Bottom edge */
         this.gamePieces.enemies.forEach(enemy => {
-            if (enemy.y >= game.canvas.height) enemy.killed = true;
+            if (enemy.y >= game.canvas.height) enemy.kill();
         });
     },
     cleanUpPieces: function () {
@@ -114,8 +126,7 @@ var game = {
         this.gamePieces.enemies = this.gamePieces.enemies.filter(items => !items.killed);
     },
     countFrames: function () {
-        this.majorFrames += 1;
-        if (this.majorFrames > MAJOR_FRAMES) this.majorFrames = 0;
+        this.frameCount += 1;
     },
     update: function () {
         this.countFrames();
@@ -163,7 +174,24 @@ var collisionUtils = {
     }
 }
 
+var player = {
+    missiledFired: 0,
+    canPlayerFireMissile: function () {
+        return this.missiledFired < PLAYER_MAX_MISSILES;
+    },
+    playerFiredMissile: function () {
+        this.missiledFired += 1;
+    },
+    playerMissiledDestroyed: function () {
+        this.missiledFired -= 1;
+        if (this.missiledFired < 0) this.missiledFired = 0;
+    }
+}
+
 var enemyAI = {
+    enemiesFired: 0,
+    lastFrameFiredOn: 0,
+    lastFrameMovedDown: FRAMES_BEFORE_MOVING_DOWN,
     lowerEnemies: function () {
         let cols = [];
         let ret = [];
@@ -198,11 +226,26 @@ var enemyAI = {
         })
         return ret;
     },
+    firedMissile: function (id) {
+        let missiles = game.gamePieces.missiles.filter(missile => missile.id === id);
+        return missiles.length;
+    },
     enemyFire: function () {
         let lowest = enemyAI.lowerEnemies();
         lowest.forEach(enemy => {
-            // Check to fire
+            if (rnd(10) <= CHANCE_OF_ENEMY_FIRE &&
+                this.enemiesFired <= MAX_FIRING_ENEMIES &&
+                this.firedMissile(enemy.id) === 0 &&
+                this.lastFrameFiredOn + FRAMES_BETWEEN_FIRE < game.frameCount) {
+                enemy.fire();
+                this.enemiesFired += 1;
+                this.lastFrameFiredOn = game.frameCount;
+            }
         })
+    },
+    enemyMissiledDestroyed: function () {
+        this.enemiesFired -= 1;
+        if (this.enemiesFired < 0) this.enemiesFired = 0;
     },
     enemyMovement: function () {
         let atEdge = NO;
@@ -217,13 +260,25 @@ var enemyAI = {
                 if (atEdge === RIGHT) enemy.dx = -ENEMY_X_SPEED;
                 if (atEdge === LEFT) enemy.dx = ENEMY_X_SPEED;
             }
-            if (game.majorFrames === 0) {
-                enemy.dy = 0; // ENEMY_Y_SPEED;
-            } else {
+        });
+
+        if (this.lastFrameMovedDown + FRAMES_BEFORE_MOVING_DOWN < game.frameCount) {
+            game.gamePieces.enemies.forEach(enemy => {
+                enemy.dy = ENEMY_Y_SPEED;
+                this.lastFrameMovedDown = game.frameCount;
+            });
+        } else {
+            game.gamePieces.enemies.forEach(enemy => {
                 enemy.dy = 0;
-            }
-        })
+            });
+        }
     }
+}
+
+/* Util Functions */
+
+function rnd(max) {
+    return Math.floor(Math.random() * max) + 1;
 }
 
 function playerWonTheGame() {
@@ -231,6 +286,8 @@ function playerWonTheGame() {
         game.end = true;
     }
 }
+
+/* Game Loop */
 
 function update() {
     game.update();
@@ -243,8 +300,11 @@ function update() {
     }
 }
 
-function component(name, width, height, color, x, y, dx, dy) {
+/* Game Component for Player, Enemy and Missiles */
+
+function component(name, id, width, height, color, x, y, dx, dy, callBackOnKilled) {
     this.name = name;
+    this.id = id;
     this.width = width;
     this.height = height;
     this.x = x;
@@ -252,10 +312,30 @@ function component(name, width, height, color, x, y, dx, dy) {
     this.dx = dx;
     this.dy = dy;
     this.killed = false;
+    this.callBackOnKilled = callBackOnKilled;
     this.fire = function () {
-        if (this.name === "player") {
-            game.gamePieces.missiles.push(new component("missile", 5, 25, "green", this.x + this.width / 2, this.y - 26, 0, -5));
+        let missile = undefined;
+        if (this.name === "player" && player.canPlayerFireMissile()) {
+            missile = new component(
+                "missile", 0,
+                5, 25, "green",
+                this.x + this.width / 2, this.y - 26,
+                0, -MISSILE_SPEED,
+                function () {
+                    player.playerMissiledDestroyed();
+                });
+            player.playerFiredMissile();
+        } else if (this.name === "enemy") {
+            missile = new component(
+                "missile", this.id,
+                5, 25, "red",
+                this.x + rnd(this.width), this.y + this.height + 1,
+                0, MISSILE_SPEED,
+                function () {
+                    enemyAI.enemyMissiledDestroyed();
+                });
         }
+        if (missile) game.gamePieces.missiles.push(missile);
     }
     this.update = function () {
         this.x += this.dx;
@@ -268,6 +348,12 @@ function component(name, width, height, color, x, y, dx, dy) {
             ctx.fillRect(this.x, this.y, this.width, this.height);
         }
     };
+    this.kill = function () {
+        this.killed = true;
+        if (this.callBackOnKilled) this.callBackOnKilled();
+    }
 }
+
+/* Start the Game */
 
 startGame();
