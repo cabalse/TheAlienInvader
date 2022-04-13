@@ -4,8 +4,8 @@
 /*********************/
 
 /* Speeds */
-const ENEMY_Y_SPEED = 10;
-const ENEMY_X_SPEED = 1;
+var ENEMY_Y_SPEED = 5;
+var ENEMY_X_SPEED = 1;
 const MISSILE_SPEED = 5;
 
 /* Controlls */
@@ -20,7 +20,7 @@ const PLAYER_MAX_MISSILES = 3;
 const CHANCE_OF_ENEMY_FIRE = 5; // 1 to 10
 const MAX_FIRING_ENEMIES = 3;
 const FRAMES_BETWEEN_FIRE = 15;
-const FRAMES_BEFORE_MOVING_DOWN = 200;
+var FRAMES_BEFORE_MOVING_DOWN = 200;
 
 function startGame() {
     game.gamePieces.player = new component("player", 0, 30, 30, "blue", 385, 560, 0, 0, undefined);
@@ -155,6 +155,13 @@ var game = {
     clear: function () {
         this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
     },
+    drawText: function (text) {
+        this.context.font = "50px Arial";
+        this.context.fillStyle = "black";
+        this.context.textBaseline = 'middle';
+        this.context.textAlign = 'center';
+        this.context.fillText(text, this.canvas.width / 2, this.canvas.height / 2);
+    }
 }
 
 var collisionUtils = {
@@ -266,7 +273,11 @@ var enemyAI = {
             game.gamePieces.enemies.forEach(enemy => {
                 enemy.dy = ENEMY_Y_SPEED;
                 this.lastFrameMovedDown = game.frameCount;
+
             });
+            /* Increase speed */
+            ENEMY_X_SPEED += 1;
+            FRAMES_BEFORE_MOVING_DOWN -= 6;
         } else {
             game.gamePieces.enemies.forEach(enemy => {
                 enemy.dy = 0;
@@ -296,7 +307,8 @@ function update() {
     if (!game.end) {
         window.requestAnimationFrame(update);
     } else {
-        alert("GAME OVER");
+        /* It's Game Over */
+        game.drawText("GAME OVER");
     }
 }
 
